@@ -1,0 +1,213 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+// OLED Display Settings
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// Pin Definitions
+#define DS18B20_PIN 4      // DS18B20 Data pin
+#define RELAY1_PIN 25      // Relay 1 control pin
+#define RELAY2_PIN 26      // Relay 2 control pin
+#define RELAY_ACTIVE_LOW true  // Change from false to true
+// Temperature threshold (Changed to 30°C)
+#define TEMP_THRESHOLD 30.0
+
+// Relay Logic (change to true if your relay is active LOW)
+#define RELAY_ACTIVE_LOW false  // Set to true if relay turns ON with LOW signal
+
+// Setup OneWire and DallasTemperature
+OneWire oneWire(DS18B20_PIN);
+DallasTemperature sensors(&oneWire);
+
+// Variables
+float temperature = 0.0;
+bool relay1State = false;
+bool relay2State = false;
+unsigned long lastUpdate = 0;
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("\n\n=== Temperature Control System Starting ===");
+  
+  // Initialize Relay Pins FIRST
+  pinMode(RELAY1_PIN, OUTPUT);
+  pinMode(RELAY2_PIN, OUTPUT);
+  setRelay(RELAY1_PIN, false);  // Turn OFF
+  setRelay(RELAY2_PIN, false);  // Turn OFF
+  Serial.println("Relays initialized");
+  
+  // Initialize DS18B20 Sensor
+  sensors.begin();
+  int deviceCount = sensors.getDeviceCount();
+  Serial.print("DS18B20 devices found: ");
+  Serial.println(deviceCount);
+  
+  if(deviceCount == 0) {
+    Serial.println("WARNING: No DS18B20 sensor detected!");
+  }
+  
+  // Initialize I2C for OLED
+  Wire.begin(21, 22);  // SDA=21, SCL=22
+  Serial.println("I2C initialized");
+  
+  // Try to initialize OLED Display with error handling
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("ERROR: OLED not found at 0x3C");
+    Serial.println("Trying address 0x3D...");
+    
+    if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3D)) {
+      Serial.println("ERROR: OLED not found at 0x3D either!");
+      Serial.println("System will continue without display");
+    } else {
+      Serial.println("OLED found at 0x3D");
+    }
+  } else {
+    Serial.println("OLED found at 0x3C");
+  }
+  
+  // Show startup screen
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println(F("System Starting..."));
+  display.println();
+  display.print(F("Sensors: "));
+  display.println(deviceCount);
+  display.display();
+  delay(2000);
+  
+  Serial.println("=== System Ready ===\n");
+}
+
+void loop() {
+  // Read temperature from DS18B20
+  sensors.requestTemperatures();
+  temperature = sensors.getTempCByIndex(0);
+  
+  // Check if reading is valid
+  if(temperature == DEVICE_DISCONNECTED_C || temperature < -50 || temperature > 125) {
+    Serial.println("ERROR: Invalid temperature reading!");
+    displayError();
+    delay(2000);
+    return;
+  }
+  
+  // MODIFIED CONTROL LOGIC:
+  // If temp <= 30°C -> Relay1 ON, Relay2 OFF
+  // If temp > 30°C  -> Relay1 OFF, Relay2 ON
+  if(temperature > TEMP_THRESHOLD) {
+    relay1State = false;  // Relay 1 OFF when hot
+    relay2State = true;   // Relay 2 ON when hot
+  } else {
+    relay1State = true;   // Relay 1 ON when cool
+    relay2State = false;  // Relay 2 OFF when cool
+  }
+  
+  // Apply relay states
+  setRelay(RELAY1_PIN, relay1State);
+  setRelay(RELAY2_PIN, relay2State);
+  
+  // Update Display
+  updateDisplay();
+  
+  // Print to Serial Monitor every second
+  if(millis() - lastUpdate >= 1000) {
+    Serial.print("Temp: ");
+    Serial.print(temperature, 1);
+    Serial.print("°C | Threshold: ");
+    Serial.print(TEMP_THRESHOLD, 0);
+    Serial.print("°C | R1: ");
+    Serial.print(relay1State ? "ON " : "OFF");
+    Serial.print(" | R2: ");
+    Serial.println(relay2State ? "ON " : "OFF");
+    lastUpdate = millis();
+  }
+  
+  delay(500);  // Update every 500ms
+}
+
+// Function to set relay state (handles both active HIGH and LOW)
+void setRelay(int pin, bool state) {
+  if(RELAY_ACTIVE_LOW) {
+    digitalWrite(pin, state ? LOW : HIGH);
+  } else {
+    digitalWrite(pin, state ? HIGH : LOW);
+  }
+}
+
+void updateDisplay() {
+  display.clearDisplay();
+  
+  // Title
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println(F("Temp Controller"));
+  display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
+  
+  // Temperature Display (Large)
+  display.setTextSize(2);
+  display.setCursor(0, 13);
+  if(temperature < 100) {
+    display.print(" ");  // Add space for alignment
+  }
+  display.print(temperature, 1);
+  display.setTextSize(1);
+  display.cp437(true);
+  display.write(167);  // Degree symbol
+  display.println("C");
+  
+  // Threshold Line
+  display.setTextSize(1);
+  display.setCursor(0, 34);
+  display.print(F("Limit: "));
+  display.print(TEMP_THRESHOLD, 0);
+  display.write(167);
+  display.print(F("C"));
+  
+  // Status indicator
+  display.setCursor(0, 44);
+  if(temperature > TEMP_THRESHOLD) {
+    display.print(F("Status: HIGH TEMP!"));
+  } else {
+    display.print(F("Status: Normal"));
+  }
+  
+  // Relay Status with visual indicators
+  display.setCursor(0, 55);
+  display.print(F("R1:"));
+  display.fillRect(20, 55, 10, 7, relay1State ? SSD1306_WHITE : SSD1306_BLACK);
+  if(!relay1State) display.drawRect(20, 55, 10, 7, SSD1306_WHITE);
+  display.setCursor(35, 55);
+  display.print(relay1State ? "ON " : "OFF");
+  
+  display.setCursor(65, 55);
+  display.print(F("R2:"));
+  display.fillRect(85, 55, 10, 7, relay2State ? SSD1306_WHITE : SSD1306_BLACK);
+  if(!relay2State) display.drawRect(85, 55, 10, 7, SSD1306_WHITE);
+  display.setCursor(100, 55);
+  display.print(relay2State ? "ON " : "OFF");
+  
+  display.display();
+}
+
+void displayError() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(10, 15);
+  display.println(F("! SENSOR ERROR !"));
+  display.setCursor(0, 30);
+  display.println(F("Check DS18B20:"));
+  display.setCursor(0, 40);
+  display.println(F("- Connection"));
+  display.setCursor(0, 50);
+  display.println(F("- 4.7K Pullup"));
+  display.display();
+}
