@@ -4,7 +4,8 @@
 This project implements a **smart poultry brooding system** designed to automatically maintain the optimal temperature for chicks using an **ESP32**, **DS18B20 temperature sensor**, **dual relay module**, and an **SSD1306 OLED display**.
 
 The system continuously monitors the brooding area temperature and automatically turns heating or cooling devices **ON/OFF** based on a predefined temperature threshold (default **30°C**). Real-time temperature and relay status are displayed on the OLED screen for easy monitoring.
-![568678204_1531873254485341_7670808993564666269_n]
+
+![568822150_1531873104485356_2155831308616218667_n](https://github.com/user-attachments/assets/70b69807-cc08-4504-8231-8d64897bf0c2)
 
 
 ---
